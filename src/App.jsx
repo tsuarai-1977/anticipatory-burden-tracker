@@ -73,6 +73,9 @@ function ExportButton({ entries, pastMemories }) {
 
 export default function App(){
   const[entries,setEntries]=useState([]);const[current,setCurrent]=useState(defaultEntry());const[view,setView]=useState("record");const[showBadge,setShowBadge]=useState(null);const[pastMemories,setPastMemories]=useState([]);const[pastInput,setPastInput]=useState({period:"",event:"",type:"uncompleted",burden:0,emotion:"",impact:""});const[detailId,setDetailId]=useState(null);const[updateNote,setUpdateNote]=useState("");const[dbReady,setDbReady]=useState(false);
+  const[editMode,setEditMode]=useState(false);const[editData,setEditData]=useState(null);
+  const[reEvalMode,setReEvalMode]=useState(false);const[reEvalLayers,setReEvalLayers]=useState([0,0,0,0,0]);
+  const[noiseReEvalMode,setNoiseReEvalMode]=useState(false);const[noiseReEvalValue,setNoiseReEvalValue]=useState(0);
 
   // Load from IndexedDB on mount
   useEffect(()=>{
@@ -104,28 +107,100 @@ export default function App(){
   const changeStatus=(id,ns)=>{const e=entries.find(x=>x.id===id);const u={date:new Date().toISOString(),note:`ステータス: ${STATUS[e.status]} → ${STATUS[ns]}`,status:ns};updateEntry(id,{status:ns,completedAt:ns==="completed"?new Date().toISOString():e.completedAt,updates:[...(e.updates||[]),u]})};
   const toggleSubtask=(eid,idx)=>{const e=entries.find(x=>x.id===eid);const ns=e.subtasks.map((s,i)=>i===idx?{...s,done:!s.done}:s);updateEntry(eid,{subtasks:ns})};
   const savePast=()=>{if(!pastInput.event)return;const pid=Date.now();const pe={id:pid,createdAt:new Date().toISOString(),date:new Date().toISOString().slice(0,10),time:new Date().toTimeString().slice(0,5),task:pastInput.event,layers:[0,0,0,0,pastInput.burden],totalBurden:pastInput.burden,sincerity:"",firstStep:"",subtasks:[{text:"",done:false}],bodyLocation:"",thought:"",emotion:pastInput.emotion,status:pastInput.type==="uncompleted"?"pending":"partial",insight:pastInput.impact,copingUsed:"",updates:[{date:new Date().toISOString(),note:"[過去の体験] 時期: "+(pastInput.period||"不明")+" | タイプ: "+(pastInput.type==="uncompleted"?"着手・完了できず":"完了したが不満足")+" | ノイズ: "+pastInput.burden+"/10"+(pastInput.impact?" | 今への影響: "+pastInput.impact:""),status:pastInput.type==="uncompleted"?"pending":"partial"}],completedAt:null,isPast:true,period:pastInput.period,noiseLevel:pastInput.burden};setEntries([...entries,pe]);setPastMemories([...pastMemories,{...pastInput,id:pid}]);setPastInput({period:"",event:"",type:"uncompleted",burden:0,emotion:"",impact:""})};
+  const startEdit=(e)=>{setEditData({task:e.task,sincerity:e.sincerity||"",firstStep:e.firstStep||"",bodyLocation:e.bodyLocation||"",thought:e.thought||"",emotion:e.emotion||"",copingUsed:e.copingUsed||"",insight:e.insight||""});setEditMode(true)};
+  const saveEdit=(id)=>{if(!editData)return;const e=entries.find(x=>x.id===id);const changes=[];if(editData.task!==e.task)changes.push(`課題: ${e.task} → ${editData.task}`);["sincerity","firstStep","bodyLocation","thought","emotion","copingUsed","insight"].forEach(k=>{if((editData[k]||"")!==(e[k]||""))changes.push(`${k}を更新`)});if(changes.length>0){const u={date:new Date().toISOString(),note:"[編集] "+changes.join(", "),status:e.status};updateEntry(id,{...editData,updates:[...(e.updates||[]),u]})}else{updateEntry(id,editData)}setEditMode(false);setEditData(null)};
+  const startReEval=(e)=>{setReEvalLayers([...e.layers]);setReEvalMode(true)};
+  const saveReEval=(id)=>{const e=entries.find(x=>x.id===id);const oldTotal=e.totalBurden;const newTotal=reEvalLayers.reduce((a,b)=>a+b,0);const diff=newTotal-oldTotal;const diffStr=diff>0?`+${diff}`:String(diff);const u={date:new Date().toISOString(),note:`[再評価] AB: ${oldTotal} → ${newTotal}（${diffStr}）`,status:e.status};updateEntry(id,{layers:[...reEvalLayers],totalBurden:newTotal,updates:[...(e.updates||[]),u]});setReEvalMode(false)};
+  const startNoiseReEval=(e)=>{setNoiseReEvalValue(e.noiseLevel||0);setNoiseReEvalMode(true)};
+  const saveNoiseReEval=(id)=>{const e=entries.find(x=>x.id===id);const oldNoise=e.noiseLevel||0;const diff=noiseReEvalValue-oldNoise;const diffStr=diff>0?`+${diff}`:String(diff);const u={date:new Date().toISOString(),note:`[ノイズ再評価] ノイズ: ${oldNoise} → ${noiseReEvalValue}（${diffStr}）`,status:e.status};updateEntry(id,{noiseLevel:noiseReEvalValue,updates:[...(e.updates||[]),u]});const pm=pastMemories.find(m=>m.id===id);if(pm){setPastMemories(pastMemories.map(m=>m.id===id?{...m,burden:noiseReEvalValue}:m))}setNoiseReEvalMode(false)};
   const bc=totalBurden>35?"#E8637A":totalBurden>20?"#F5A623":totalBurden>10?"#6BB5E8":"#7ED6A0";
   const S={card:{background:"#fff",borderRadius:14,padding:18,marginBottom:14,boxShadow:"0 2px 8px rgba(0,0,0,.06)"},inp:{width:"100%",padding:"9px 11px",border:"2px solid #e8e4db",borderRadius:9,fontSize:13,boxSizing:"border-box",outline:"none"},inpG:{width:"100%",padding:"9px 11px",border:"2px solid #d0ece8",borderRadius:9,fontSize:13,boxSizing:"border-box",outline:"none"},lbl:{fontSize:12,fontWeight:700,color:"#1B2A4A",display:"block",marginBottom:3}};
 
   // DETAIL VIEW
   if(detailEntry){const days=detailEntry.completedAt?daysBetween(detailEntry.createdAt,detailEntry.completedAt):daysBetween(detailEntry.createdAt,new Date().toISOString());const stD=(detailEntry.subtasks||[]).filter(s=>s.done).length;const stT=(detailEntry.subtasks||[]).filter(s=>s.text?.trim()).length;
+  const reEvalTotal=reEvalLayers.reduce((a,b)=>a+b,0);const reEvalDiff=reEvalTotal-detailEntry.totalBurden;
+  const editInpStyle={...S.inp,border:"2px solid #6BB5E8",background:"#f8fbff"};
+  const DETAIL_FIELDS=[{k:"bodyLocation",l:"身体感覚",p:"例：胃のあたりが重い"},{k:"thought",l:"思考",p:"例：どうせまたできない…"},{k:"emotion",l:"感情",p:"例：恐怖、恥、焦り"},{k:"copingUsed",l:"コーピング",p:"例：深呼吸、散歩、分割"},{k:"insight",l:"気づき",p:"例：締切3日前から身体が…"}];
   return(<div style={{minHeight:"100vh",background:"linear-gradient(160deg,#faf9f6,#f0ede6,#e8e4db)",fontFamily:"'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif"}}><div style={{maxWidth:420,margin:"0 auto",padding:"16px 16px 100px"}}>
-    <button onClick={()=>setDetailId(null)} style={{background:"none",border:"none",fontSize:14,color:"#2E8B8B",fontWeight:600,cursor:"pointer",padding:"8px 0",marginBottom:8}}>← 一覧に戻る</button>
-    <div style={S.card}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><h2 style={{fontSize:17,fontWeight:700,color:"#1B2A4A",margin:0}}>{detailEntry.task}</h2><span style={{fontSize:12,fontWeight:700,color:STATUS_COLORS[detailEntry.status],background:STATUS_COLORS[detailEntry.status]+"18",padding:"4px 10px",borderRadius:8}}>{STATUS[detailEntry.status]}</span></div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+      <button onClick={()=>{setDetailId(null);setEditMode(false);setEditData(null);setReEvalMode(false);setNoiseReEvalMode(false)}} style={{background:"none",border:"none",fontSize:14,color:"#2E8B8B",fontWeight:600,cursor:"pointer",padding:"8px 0"}}>← 一覧に戻る</button>
+      {!editMode&&!reEvalMode&&!noiseReEvalMode&&<button onClick={()=>startEdit(detailEntry)} style={{padding:"6px 14px",border:"1.5px solid #6BB5E8",borderRadius:8,fontSize:12,fontWeight:600,background:"#fff",color:"#6BB5E8",cursor:"pointer"}}>✏️ 編集モード</button>}
+      {editMode&&<div style={{display:"flex",gap:4}}><button onClick={()=>{setEditMode(false);setEditData(null)}} style={{padding:"6px 12px",border:"1.5px solid #e8e4db",borderRadius:8,fontSize:12,fontWeight:600,background:"#fff",color:"#999",cursor:"pointer"}}>キャンセル</button><button onClick={()=>saveEdit(detailEntry.id)} style={{padding:"6px 12px",border:"none",borderRadius:8,fontSize:12,fontWeight:700,background:"#6BB5E8",color:"#fff",cursor:"pointer"}}>保存</button></div>}
+    </div>
+
+    {/* Header card */}
+    <div style={S.card}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        {editMode?<input value={editData.task} onChange={e=>setEditData({...editData,task:e.target.value})} style={{...editInpStyle,fontSize:16,fontWeight:700,flex:1,marginRight:8}}/>:<h2 style={{fontSize:17,fontWeight:700,color:"#1B2A4A",margin:0}}>{detailEntry.task}</h2>}
+        <span style={{fontSize:12,fontWeight:700,color:STATUS_COLORS[detailEntry.status],background:STATUS_COLORS[detailEntry.status]+"18",padding:"4px 10px",borderRadius:8,whiteSpace:"nowrap"}}>{STATUS[detailEntry.status]}</span>
+      </div>
       <div style={{fontSize:12,color:"#999",marginBottom:12}}>作成: {detailEntry.date} {detailEntry.time} | 経過: {days}日{detailEntry.completedAt&&<span style={{color:"#7ED6A0",fontWeight:600}}> | {daysBetween(detailEntry.createdAt,detailEntry.completedAt)}日で完了</span>}</div>
-      <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{Object.keys(STATUS).map(s=>(<button key={s} onClick={()=>changeStatus(detailEntry.id,s)} style={{padding:"6px 10px",border:detailEntry.status===s?`2px solid ${STATUS_COLORS[s]}`:"1.5px solid #e8e4db",borderRadius:8,fontSize:11,fontWeight:detailEntry.status===s?700:400,background:detailEntry.status===s?STATUS_COLORS[s]+"15":"#fff",color:detailEntry.status===s?STATUS_COLORS[s]:"#999",cursor:"pointer"}}>{STATUS[s]}</button>))}</div></div>
-    <div style={{...S.card,display:"flex",flexDirection:"column",alignItems:"center"}}><RadarChart data={detailEntry.layers} size={180}/><div style={{fontSize:24,fontWeight:800,color:detailEntry.totalBurden>35?"#E8637A":detailEntry.totalBurden>20?"#F5A623":"#7ED6A0"}}>AB: {detailEntry.totalBurden}<span style={{fontSize:12,color:"#999"}}>/50</span></div></div>
+      <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{Object.keys(STATUS).map(s=>(<button key={s} onClick={()=>changeStatus(detailEntry.id,s)} style={{padding:"6px 10px",border:detailEntry.status===s?`2px solid ${STATUS_COLORS[s]}`:"1.5px solid #e8e4db",borderRadius:8,fontSize:11,fontWeight:detailEntry.status===s?700:400,background:detailEntry.status===s?STATUS_COLORS[s]+"15":"#fff",color:detailEntry.status===s?STATUS_COLORS[s]:"#999",cursor:"pointer"}}>{STATUS[s]}</button>))}</div>
+    </div>
+
+    {/* Radar + AB score + Re-evaluation */}
+    <div style={{...S.card,display:"flex",flexDirection:"column",alignItems:"center"}}>
+      <RadarChart data={reEvalMode?reEvalLayers:detailEntry.layers} size={180}/>
+      <div style={{fontSize:24,fontWeight:800,color:detailEntry.totalBurden>35?"#E8637A":detailEntry.totalBurden>20?"#F5A623":"#7ED6A0"}}>AB: {detailEntry.totalBurden}<span style={{fontSize:12,color:"#999"}}>/50</span></div>
+      {!reEvalMode&&!detailEntry.isPast&&<button onClick={()=>startReEval(detailEntry)} style={{marginTop:10,padding:"8px 18px",border:"1.5px solid #E8637A",borderRadius:8,fontSize:12,fontWeight:600,background:"#fff",color:"#E8637A",cursor:"pointer"}}>🔄 再評価する</button>}
+    </div>
+
+    {/* Re-evaluation panel */}
+    {reEvalMode&&<div style={{...S.card,background:"linear-gradient(135deg,#fff,#fff5f5)",border:"2px solid #E8637A33"}}>
+      <h3 style={{fontSize:14,fontWeight:700,color:"#E8637A",margin:"0 0 4px"}}>🔄 予期負担の再評価</h3>
+      <p style={{fontSize:10,color:"#999",margin:"0 0 12px"}}>現在の感覚で5層を再入力してください</p>
+      {LAYERS.map((l,i)=>(<LayerSlider key={l.id} layer={l} value={reEvalLayers[i]} onChange={v=>{const nl=[...reEvalLayers];nl[i]=Math.max(0,Math.min(10,v));setReEvalLayers(nl)}}/>))}
+      <div style={{textAlign:"center",margin:"12px 0 8px"}}>
+        <span style={{fontSize:22,fontWeight:800,color:reEvalTotal>35?"#E8637A":reEvalTotal>20?"#F5A623":"#7ED6A0"}}>{reEvalTotal}</span>
+        <span style={{fontSize:12,color:"#999"}}>/50</span>
+        <span style={{fontSize:16,fontWeight:700,marginLeft:12,color:reEvalDiff>0?"#E8637A":reEvalDiff<0?"#7ED6A0":"#999"}}>{detailEntry.totalBurden} → {reEvalTotal}（{reEvalDiff>0?"+":"" }{reEvalDiff}）</span>
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={()=>setReEvalMode(false)} style={{flex:1,padding:"10px",border:"1.5px solid #e8e4db",borderRadius:8,fontSize:13,fontWeight:600,background:"#fff",color:"#999",cursor:"pointer"}}>キャンセル</button>
+        <button onClick={()=>saveReEval(detailEntry.id)} style={{flex:1,padding:"10px",border:"none",borderRadius:8,fontSize:13,fontWeight:700,background:"linear-gradient(135deg,#E8637A,#c0506a)",color:"#fff",cursor:"pointer"}}>再評価を保存</button>
+      </div>
+    </div>}
+
+    {/* Noise re-evaluation for past experiences */}
+    {detailEntry.isPast&&!noiseReEvalMode&&<div style={S.card}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><span style={{fontSize:13,fontWeight:700,color:"#A78BDB"}}>ノイズ度合い: </span><span style={{fontSize:20,fontWeight:800,color:(detailEntry.noiseLevel||0)>7?"#E8637A":(detailEntry.noiseLevel||0)>4?"#F5A623":"#7ED6A0"}}>{detailEntry.noiseLevel||0}</span><span style={{fontSize:12,color:"#999"}}>/10</span></div>
+        <button onClick={()=>startNoiseReEval(detailEntry)} style={{padding:"8px 14px",border:"1.5px solid #A78BDB",borderRadius:8,fontSize:12,fontWeight:600,background:"#fff",color:"#A78BDB",cursor:"pointer"}}>🔄 ノイズ再評価</button>
+      </div>
+    </div>}
+    {noiseReEvalMode&&<div style={{...S.card,background:"linear-gradient(135deg,#fff,#f8f5ff)",border:"2px solid #A78BDB33"}}>
+      <h3 style={{fontSize:14,fontWeight:700,color:"#A78BDB",margin:"0 0 4px"}}>🔄 ノイズ再評価</h3>
+      <p style={{fontSize:10,color:"#999",margin:"0 0 10px"}}>今のノイズ度合いを再評価してください</p>
+      <div style={{display:"flex",gap:3,marginBottom:10}}>{[0,1,2,3,4,5,6,7,8,9,10].map(n=>(<button key={n} onClick={()=>setNoiseReEvalValue(n)} style={{flex:1,padding:"8px 0",border:"none",borderRadius:6,fontSize:13,fontWeight:noiseReEvalValue===n?700:400,background:noiseReEvalValue===n?(n>7?"#E8637A":n>4?"#F5A623":"#7ED6A0"):"#f5f3ee",color:noiseReEvalValue===n?"#fff":"#666",cursor:"pointer"}}>{n}</button>))}</div>
+      {(()=>{const oldN=detailEntry.noiseLevel||0;const diff=noiseReEvalValue-oldN;return <div style={{textAlign:"center",margin:"8px 0",fontSize:15,fontWeight:700,color:diff>0?"#E8637A":diff<0?"#7ED6A0":"#999"}}>ノイズ: {oldN} → {noiseReEvalValue}（{diff>0?"+":""}{diff}）</div>})()}
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={()=>setNoiseReEvalMode(false)} style={{flex:1,padding:"10px",border:"1.5px solid #e8e4db",borderRadius:8,fontSize:13,fontWeight:600,background:"#fff",color:"#999",cursor:"pointer"}}>キャンセル</button>
+        <button onClick={()=>saveNoiseReEval(detailEntry.id)} style={{flex:1,padding:"10px",border:"none",borderRadius:8,fontSize:13,fontWeight:700,background:"linear-gradient(135deg,#A78BDB,#1B2A4A)",color:"#fff",cursor:"pointer"}}>再評価を保存</button>
+      </div>
+    </div>}
+
+    {/* Bridge section */}
     {(detailEntry.sincerity||detailEntry.firstStep||stT>0)&&<div style={{...S.card,background:"linear-gradient(135deg,#fff,#f0faf8)",border:"1px solid #d0ece8"}}><h3 style={{fontSize:14,fontWeight:700,color:"#2E8B8B",margin:"0 0 10px"}}>🌿 着手への橋渡し</h3>
-      {detailEntry.sincerity&&<div style={{marginBottom:8}}><span style={{fontSize:11,fontWeight:600,color:"#666"}}>誠実でありたいこと：</span><p style={{fontSize:13,color:"#1B2A4A",margin:"2px 0",fontWeight:500}}>{detailEntry.sincerity}</p></div>}
-      {detailEntry.firstStep&&<div style={{marginBottom:8}}><span style={{fontSize:11,fontWeight:600,color:"#666"}}>最初の一歩：</span><p style={{fontSize:13,color:"#1B2A4A",margin:"2px 0",fontWeight:500}}>{detailEntry.firstStep}</p></div>}
+      {editMode?<div style={{marginBottom:8}}><label style={{fontSize:11,fontWeight:600,color:"#666",display:"block",marginBottom:2}}>誠実でありたいこと</label><input value={editData.sincerity} onChange={e=>setEditData({...editData,sincerity:e.target.value})} style={editInpStyle}/></div>
+      :detailEntry.sincerity&&<div style={{marginBottom:8}}><span style={{fontSize:11,fontWeight:600,color:"#666"}}>誠実でありたいこと：</span><p style={{fontSize:13,color:"#1B2A4A",margin:"2px 0",fontWeight:500}}>{detailEntry.sincerity}</p></div>}
+      {editMode?<div style={{marginBottom:8}}><label style={{fontSize:11,fontWeight:600,color:"#666",display:"block",marginBottom:2}}>最初の一歩</label><input value={editData.firstStep} onChange={e=>setEditData({...editData,firstStep:e.target.value})} style={editInpStyle}/></div>
+      :detailEntry.firstStep&&<div style={{marginBottom:8}}><span style={{fontSize:11,fontWeight:600,color:"#666"}}>最初の一歩：</span><p style={{fontSize:13,color:"#1B2A4A",margin:"2px 0",fontWeight:500}}>{detailEntry.firstStep}</p></div>}
       {stT>0&&<div><div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:11,fontWeight:600,color:"#666"}}>細分化した要素：</span><span style={{fontSize:13,fontWeight:700,color:"#2E8B8B"}}>{stD}/{stT}</span></div>
         <div style={{height:6,background:"#e8e4db",borderRadius:3,marginBottom:8}}><div style={{height:"100%",width:stT>0?`${stD/stT*100}%`:"0%",background:"linear-gradient(90deg,#2E8B8B,#7ED6A0)",borderRadius:3,transition:"width .5s"}}/></div>
         {detailEntry.subtasks.filter(s=>s.text?.trim()).map((s,i)=>(<div key={i} onClick={()=>toggleSubtask(detailEntry.id,i)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:s.done?"#f0faf8":"#fff",borderRadius:8,marginBottom:4,cursor:"pointer",border:"1px solid #e8e4db"}}><span style={{fontSize:16}}>{s.done?"✅":"⬜"}</span><span style={{fontSize:13,color:s.done?"#7ED6A0":"#333",textDecoration:s.done?"line-through":"none",fontWeight:s.done?400:500}}>{s.text}</span></div>))}</div>}</div>}
-    <div style={S.card}><h3 style={{fontSize:14,fontWeight:700,color:"#1B2A4A",margin:"0 0 10px"}}>📋 記録内容</h3>
-      {[{k:"bodyLocation",l:"身体感覚"},{k:"thought",l:"思考"},{k:"emotion",l:"感情"},{k:"copingUsed",l:"コーピング"},{k:"insight",l:"気づき"}].filter(f=>detailEntry[f.k]).map(f=>(<div key={f.k} style={{marginBottom:6}}><span style={{fontSize:11,fontWeight:600,color:"#999"}}>{f.l}：</span><span style={{fontSize:13,color:"#333"}}>{detailEntry[f.k]}</span></div>))}</div>
+
+    {/* Record content - edit mode or display mode */}
+    <div style={S.card}><h3 style={{fontSize:14,fontWeight:700,color:"#1B2A4A",margin:"0 0 10px"}}>{editMode?"✏️ 記録内容を編集":"📋 記録内容"}</h3>
+      {editMode?DETAIL_FIELDS.map(f=>(<div key={f.k} style={{marginBottom:8}}><label style={{fontSize:11,fontWeight:600,color:"#666",display:"block",marginBottom:2}}>{f.l}</label><input value={editData[f.k]} onChange={e=>setEditData({...editData,[f.k]:e.target.value})} placeholder={f.p} style={editInpStyle}/></div>))
+      :DETAIL_FIELDS.filter(f=>detailEntry[f.k]).map(f=>(<div key={f.k} style={{marginBottom:6}}><span style={{fontSize:11,fontWeight:600,color:"#999"}}>{f.l}：</span><span style={{fontSize:13,color:"#333"}}>{detailEntry[f.k]}</span></div>))}
+      {!editMode&&DETAIL_FIELDS.every(f=>!detailEntry[f.k])&&<p style={{fontSize:12,color:"#999"}}>詳細記録なし</p>}
+    </div>
+
+    {/* Timeline */}
     <div style={S.card}><h3 style={{fontSize:14,fontWeight:700,color:"#1B2A4A",margin:"0 0 10px"}}>📝 経過・追記</h3>
       {(detailEntry.updates||[]).length===0&&<p style={{fontSize:12,color:"#999"}}>まだ追記はありません</p>}
-      {(detailEntry.updates||[]).map((u,i)=>(<div key={i} style={{borderLeft:`3px solid ${STATUS_COLORS[u.status]||"#ccc"}`,paddingLeft:12,marginBottom:10,paddingBottom:6,borderBottom:"1px solid #f5f3ee"}}><div style={{fontSize:11,color:"#999"}}>{new Date(u.date).toLocaleDateString("ja-JP")} {new Date(u.date).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})}</div><div style={{fontSize:13,color:"#333",marginTop:2}}>{u.note}</div></div>))}
+      {(detailEntry.updates||[]).map((u,i)=>{const isReEval=u.note?.startsWith("[再評価]");const isNoise=u.note?.startsWith("[ノイズ再評価]");const isEdit=u.note?.startsWith("[編集]");const borderColor=isReEval?"#E8637A":isNoise?"#A78BDB":isEdit?"#6BB5E8":STATUS_COLORS[u.status]||"#ccc";
+      return(<div key={i} style={{borderLeft:`3px solid ${borderColor}`,paddingLeft:12,marginBottom:10,paddingBottom:6,borderBottom:"1px solid #f5f3ee"}}><div style={{fontSize:11,color:"#999"}}>{new Date(u.date).toLocaleDateString("ja-JP")} {new Date(u.date).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})}</div><div style={{fontSize:13,color:isReEval||isNoise?"#333":"#333",fontWeight:isReEval||isNoise?600:400,marginTop:2}}>{u.note}</div></div>)})}
       <div style={{marginTop:10,display:"flex",gap:6}}><input value={updateNote} onChange={e=>setUpdateNote(e.target.value)} placeholder="追記・メモを入力..." style={{flex:1,padding:"8px 10px",border:"1.5px solid #e8e4db",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"}} onFocus={e=>e.target.style.borderColor="#2E8B8B"} onBlur={e=>e.target.style.borderColor="#e8e4db"} onKeyDown={e=>{if(e.key==="Enter")addUpdate(detailEntry.id)}}/><button onClick={()=>addUpdate(detailEntry.id)} style={{padding:"8px 14px",border:"none",borderRadius:8,background:"#2E8B8B",color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer"}}>追記</button></div></div>
   </div></div>)}
 
