@@ -1,0 +1,1 @@
+if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/anticipatory-burden-tracker/sw.js', { scope: '/anticipatory-burden-tracker/' })})}
